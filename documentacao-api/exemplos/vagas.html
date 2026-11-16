@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vagas para Técnicos Industriais</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1rem; }
+  fieldset { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; border: 1px solid #ccc; }
+  section { border-top: 2px solid #234; margin-top: 2rem; }
+  article { border: 1px solid #ccc; border-radius: .5rem; padding: .75rem 1rem; margin: 1rem 0; }
+  blockquote { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid #999; color: #444; }
+  dt { font-weight: 600; } dd { margin: 0 0 .4rem; }
+  .selo { font-size: .8rem; font-weight: 700; padding: .1rem .5rem; border-radius: 1rem; background: #dfe; }
+  .selo.POSSIVELMENTE_COMPATIVEL { background: #ffd; }
+  .prazo { color: #b00; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Vagas para Técnicos Industriais</h1>
+
+<fieldset>
+  <label>Formação <select id="formacao"><option value="">Todas</option></select></label>
+  <label>Busca <input id="busca" type="search" placeholder="cargo, órgão ou cidade"></label>
+  <label><input id="todas" type="checkbox"> incluir inscrições encerradas</label>
+</fieldset>
+
+<p id="aviso" role="status"></p>
+<div id="lista"></div>
+<p><small id="rodape"></small></p>
+
+<script>
+// Endereço da API. Em produção: https://api.seusite.org.br, e o endereço DESTA página precisa estar em
+// CONCURSOS_ORIGENS_PERMITIDAS no servidor da API. Aqui dá para trocar com ?api=http://...
+const API = new URLSearchParams(location.search).get("api") ?? "http://localhost:8080";
+
+const $ = (id) => document.getElementById(id);
+const formacoesJaListadas = new Set();
+
+// O texto vem de editais: sempre textContent (nunca innerHTML), e link só se for http(s).
+function el(tag, texto, atributos = {}) {
+  const e = document.createElement(tag);
+  if (texto != null) e.textContent = texto;
+  Object.assign(e, atributos);
+  return e;
+}
+function linkSeguro(url, rotulo) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "https:" || u.protocol === "http:") {
+      return el("a", rotulo, { href: u.href, rel: "noopener noreferrer", target: "_blank" });
+    }
+  } catch { /* endereço inválido: sem link */ }
+  return el("span", rotulo);
+}
+
+async function carregar() {
+  const params = new URLSearchParams();
+  if ($("todas").checked) params.set("situacao", "todas");
+  if ($("formacao").value) params.set("formacao", $("formacao").value);
+  if ($("busca").value.trim()) params.set("busca", $("busca").value.trim());
+  $("aviso").textContent = "Carregando…";
+  try {
+    const resposta = await fetch(`${API}/api/v1/publico/vagas?${params}`);
+    if (!resposta.ok) {
+      // erros vêm como {status, title, detail}
+      const erro = await resposta.json().catch(() => ({}));
+      throw new Error(erro.detail ?? `erro ${resposta.status}`);
+    }
+    mostrar(await resposta.json());
+  } catch (e) {
+    $("aviso").textContent = `Não foi possível carregar as vagas: ${e.message}`;
+  }
+}
+
+function mostrar(dados) {
+  // o filtro de formação é montado com as formações que a API devolve
+  for (const f of dados.formacoes) {
+    if (!formacoesJaListadas.has(f)) {
+      formacoesJaListadas.add(f);
+      $("formacao").append(el("option", f, { value: f }));
+    }
+  }
+  $("aviso").textContent = dados.totalVagas === 0 ? "Nenhuma vaga publicada com esses filtros."
+    : `${dados.totalVagas} vaga(s) em ${dados.concursos.length} concurso(s).`;
+  $("rodape").textContent = dados.ultimaBusca ? `Última busca do robô: ${new Date(dados.ultimaBusca).toLocaleString("pt-BR")}` : "";
+
+  const lista = $("lista");
+  lista.replaceChildren();
+  for (const c of dados.concursos) {
+    const s = el("section");
+    s.append(el("h2", c.nome),
+      el("p", `${c.local} · Banca: ${c.banca} · ${c.situacaoRotulo} · Inscrições: ${c.inscricoes} · Prova: ${c.prova}`));
+    if (c.alertaPrazo) s.append(el("p", c.alertaPrazo, { className: "prazo" }));
+    const links = el("p");
+    links.append(linkSeguro(c.editalUrl, `Edital (${c.editalNome})`));
+    if (c.siteInscricao) links.append(" · ", linkSeguro(c.siteInscricao, "Onde se inscrever"));
+    s.append(links);
+    for (const d of c.documentosPosteriores) {
+      s.append(el("p", `Retificação/comunicado: ${d.nome}${d.data ? ` (${d.data})` : ""} — `)).lastChild.append(linkSeguro(d.url, "abrir"));
+    }
+    for (const v of c.vagas) s.append(vaga(v));
+    lista.append(s);
+  }
+}
+
+function vaga(v) {
+  const a = el("article");
+  a.append(el("h3", v.cargo), el("span", v.classificacaoRotulo, { className: `selo ${v.classificacao}` }));
+  if (v.ajustadaNaRevisao) a.append(el("p", `A análise automática indicou ${v.classificacaoMotorRotulo}; revisado por uma pessoa.`));
+  a.append(el("p", v.justificativa));
+  const dl = el("dl");
+  const linhas = [["Formação aceita", v.formacoes.join(", ")], ["Vagas", v.vagas], ["Salário-base", v.salarioBase],
+    ["Remuneração total", v.remuneracaoTotal], ["Carga horária", v.cargaHoraria], ["Taxa de inscrição", v.taxa],
+    ["Registro profissional", v.conselho.join(" · ")]];
+  for (const [rotulo, valor] of linhas) dl.append(el("dt", rotulo), el("dd", valor));
+  a.append(dl);
+  if (v.requisito) {
+    a.append(el("blockquote", `“${v.requisito.texto}” — ${v.requisito.local}`));
+  }
+  return a;
+}
+
+for (const id of ["formacao", "todas"]) $(id).addEventListener("change", carregar);
+$("busca").addEventListener("input", () => { clearTimeout(carregar.t); carregar.t = setTimeout(carregar, 300); });
+carregar();
+</script>
+</body>
+</html>
