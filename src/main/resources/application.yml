@@ -1,0 +1,172 @@
+spring:
+  application:
+    name: concursos-tecnicos
+  datasource:
+    # Desenvolvimento: H2 em arquivo, compatível com PostgreSQL. Produção: defina SPRING_DATASOURCE_URL etc.
+    url: jdbc:h2:file:./dados/db/concursos;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;TRACE_LEVEL_FILE=0
+    username: sa
+    password:
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 60MB
+      max-request-size: 61MB
+  jackson:
+    default-property-inclusion: always
+  mvc:
+    # erros do framework (JSON inválido, parâmetro errado, rota inexistente...) no mesmo formato dos da API
+    problemdetails:
+      enabled: true
+
+server:
+  port: 8080
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+concursos:
+  # Cópia de cada documento analisado (nome = sha256). Editais saem do ar; a auditoria depende disso.
+  armazenamento: ./dados/documentos
+  api:
+    # Chave que o BACKEND do site envia no cabeçalho X-API-Key (mínimo de 24 caracteres). Nunca no navegador.
+    # Para escolher a chave, defina CONCURSOS_API_CHAVE. Sem ela, uma é gerada na 1ª execução e guardada no arquivo abaixo.
+    chave: ${CONCURSOS_API_CHAVE:}
+    arquivo-chave: ./dados/chave-api.txt
+    # Origens do site (ex.: https://seusite.org.br, separadas por vírgula) que podem ler GET /api/v1/publico/**
+    # direto do navegador. Vazio = nenhuma. "*" libera todas (esses dados são públicos).
+    origens-permitidas: ${CONCURSOS_ORIGENS_PERMITIDAS:}
+  download:
+    tamanho-maximo-mb: 60
+    timeout-segundos: 90
+    # Identifique o bot e um contato antes de coletar em produção.
+    user-agent: "ConcursosTecnicosBot/0.1"
+  coleta:
+    # Robô de coleta: lê as listagens a cada hora e processa as pistas pendentes.
+    habilitada: true
+    atraso-inicial: PT2M
+    intervalo: PT1H
+    listagens-pci:
+      - https://www.pciconcursos.com.br/concursos/sudeste/
+      - https://www.pciconcursos.com.br/concursos/nacional/
+    ufs: [RJ, NACIONAL]
+    max-editais-por-execucao: 10
+    horas-entre-tentativas: 12
+    max-tentativas: 5
+    intervalo-por-site-ms: 2000
+    # Sites das bancas: a página que lista os concursos e a expressão que reconhece o link de cada concurso.
+    # Ficam os do RJ que não terminaram. Fora daqui: AOCP e Cebraspe (a lista é montada por JavaScript) e
+    # IDECAN e IBFC (recusam robôs) — os concursos delas continuam chegando pelo PCI.
+    bancas:
+      - nome: Selecon
+        listagens: [https://selecon.org.br/]
+        link: 'selecao\.net\.br/informacoes/\d+'
+      - nome: IBADE
+        listagens: [https://portal.ibade.selecao.site/edital]
+        link: 'ibade\.selecao\.site/edital/ver/\d+'
+      - nome: IAN
+        listagens: [https://portal.ian.org.br/edital]
+        link: 'portal\.ian\.org\.br/edital/ver/\d+'
+      - nome: FGV
+        listagens: [https://conhecimento.fgv.br/concursos]
+        link: 'conhecimento\.fgv\.br/concursos/(?!nosso-portfolio)[^/?#]+$'
+      - nome: Cesgranrio
+        listagens: [https://www.cesgranrio.org.br/concursos/]
+        link: 'cesgranrio\.org\.br/concurso/[^/]+/?$'
+      - nome: Instituto Consulplan
+        listagens: [https://www.institutoconsulplan.org.br/]
+        link: 'institutoconsulplan\.org\.br/[a-z0-9-]+$'
+      # CEPUERJ fica de fora: o certificado do site não é validado pelo Java (cadeia incompleta) e os PDFs ficam
+      # em /uploads, que o robots.txt proíbe. Para ligar: nome CEPUERJ, listagens
+      # [https://www.cepuerj.uerj.br/concursos.php], link 'cepuerj\.uerj\.br/concursos2\.php\?concurso=', todas-no-rj: true.
+    # Órgãos com sede ou vagas no RJ, além de "RJ", "Rio de Janeiro" e dos municípios do estado
+    # (filtro dos concursos das bancas e do Diário Oficial da União).
+    orgaos-rj: [UFRJ, UFF, UERJ, UENF, UNIRIO, UFRRJ, Celso Suckow, IFRJ, Colégio Pedro II, CEDAE, Comlurb,
+                Petrobras, Transpetro, Eletronuclear, Nuclep, Indústrias Nucleares do Brasil, CNEN, Casa da Moeda,
+                Fiocruz, Oswaldo Cruz, INCA, Inmetro, CBPF, Observatório Nacional, Instituto Nacional de Tecnologia,
+                EMGEPRON, Arsenal de Marinha, BNDES]
+    # Domínios onde o robô não baixa nada, além do que o robots.txt já proíbe. Selecon: o robots.txt proíbe
+    # /uploads e o CDN anexos.cdn.selecao.net.br proíbe tudo; o espelho anexos-r2 não tem robots.txt, mas
+    # serve os mesmos arquivos — vale a intenção do site.
+    sem-acesso-automatico: [anexos-r2.selecao.net.br]
+    # Portais de notícias lidos pelo feed RSS (só descoberta: o edital vem do site oficial citado na notícia).
+    # feeds-rj: o portal já separa as notícias do RJ; feeds: país todo, fica o que cita o RJ.
+    # Fora daqui: QConcursos (www.qconcursos.com bloqueia robôs com desafio da Cloudflare, até no robots.txt).
+    # A Folha Dirigida (folhadirigida.com.br) hoje fica em folha.qconcursos.com, que libera robôs.
+    portais-de-noticias:
+      - nome: Folha Dirigida
+        feeds-rj: [https://folha.qconcursos.com/concursos-rio-de-janeiro-rj/feed]
+        feeds: [https://folha.qconcursos.com/concursos-abertos/feed]
+      - nome: Concursos no Brasil
+        feeds-rj: [https://concursosnobrasil.com/concursos/rj/feed/]
+      - nome: JC Concursos
+        feeds: [https://jcconcursos.com.br/feed]
+  dou:
+    # Diário Oficial da União pelo INLABS (https://inlabs.in.gov.br), que exige cadastro gratuito. Defina as
+    # variáveis de ambiente CONCURSOS_INLABS_EMAIL e CONCURSOS_INLABS_SENHA; sem elas, esta fonte fica parada.
+    email: ${CONCURSOS_INLABS_EMAIL:}
+    senha: ${CONCURSOS_INLABS_SENHA:}
+    secoes: [DO3]
+    # Na primeira leitura, busca também as edições destes dias anteriores.
+    dias-para-tras: 3
+  acompanhamento:
+    # Volta à página oficial de cada concurso em andamento (até a prova) atrás de retificações.
+    intervalo: PT24H
+    max-concursos-por-execucao: 5
+    max-documentos-por-concurso: 5
+    max-tentativas: 3
+    dias-apos-inscricao-sem-prova: 90
+  fontes:
+    sufixos-oficiais: [".gov.br", ".jus.br", ".mp.br", ".leg.br", ".mil.br", ".def.br", ".edu.br"]
+    # Revisar/ampliar: domínios das bancas e de estatais que não usam .gov.br
+    dominios-bancas:
+      - cesgranrio.org.br
+      - fgv.br
+      - cebraspe.org.br
+      - ibfc.org.br
+      - institutoaocp.org.br
+      - selecon.org.br
+      - selecao.net.br        # domínio usado de fato pelo Instituto Selecon
+      - ibade.org.br
+      - ibam-concursos.org.br
+      - consulplan.net
+      - institutoconsulplan.org.br
+      - access.org.br
+      - ian.org.br              # Instituto de Avaliação Nacional
+      - ibade.selecao.site      # portal do IBADE (plataforma "selecao.site")
+      - idecan.org.br
+      - concursosfcc.com.br
+      - vunesp.com.br
+      - quadrix.org.br
+      - fundatec.org.br
+      - institutoaccess.org.br
+    # Estatais e universidades fora de .gov.br
+    dominios-orgaos:
+      - petrobras.com.br
+      - transpetro.com.br
+      - cedae.com.br
+      - uff.br
+      - ufrj.br
+      - uerj.br
+      - unirio.br
+      - ufrrj.br
+      - uenf.br
+      - cefet-rj.br
+      - prefeitura.rio          # Prefeitura do Rio e empresas municipais (ex.: riosaude.prefeitura.rio)
+      - cp2.g12.br              # Colégio Pedro II
+    # Agregadores/notícias: só descoberta, nunca fonte de validação
+    dominios-agregadores:
+      - pciconcursos.com.br
+      - jcconcursos.com.br
+      - folhadirigida.com.br
+      - qconcursos.com
+      - estrategiaconcursos.com.br
+      - grancursosonline.com.br
+      - concursosnobrasil.com

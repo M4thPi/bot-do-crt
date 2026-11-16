@@ -1,0 +1,8 @@
+.git
+target
+dados
+exemplos
+docs
+*.log
+.idea
+.vscode
